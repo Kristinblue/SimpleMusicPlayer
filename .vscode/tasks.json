@@ -1,0 +1,41 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: configure Debug",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--fresh", "--preset", "debug"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: build Debug",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--build", "--preset", "debug", "--parallel"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "CMake: configure Debug",
+            "problemMatcher": ["$gcc"],
+            "group": { "kind": "build", "isDefault": true }
+        },
+        {
+            "label": "CMake: configure Release",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--fresh", "--preset", "release"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: build Release",
+            "type": "process",
+            "command": "cmake",
+            "args": ["--build", "--preset", "release", "--parallel"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "dependsOn": "CMake: configure Release",
+            "problemMatcher": ["$gcc"],
+            "group": "build"
+        }
+    ]
+}

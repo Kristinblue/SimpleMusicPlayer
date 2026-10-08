@@ -1,0 +1,13 @@
+{
+    "cmake.useCMakePresets": "always",
+    "cmake.configureOnOpen": true,
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "files.encoding": "utf8",
+    "files.insertFinalNewline": true,
+    "c-cpp-compile-run.output-location": "${workspaceFolder}/bin/single-file",
+    "cmake.debugConfig": {
+        "cwd": "${workspaceFolder}",
+        "MIMode": "gdb",
+        "miDebuggerPath": "D:/MySoftware/QT/Tools/mingw1310_64/bin/gdb.exe"
+    }
+}
