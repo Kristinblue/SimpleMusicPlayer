@@ -7,7 +7,6 @@
 #include <QScrollBar>
 #include <QSlider>
 #include <QStyle>
-#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -39,7 +38,6 @@ private:
         {14, "晨光", "示例歌手 A", "夏日", "music/14.wav"}
     };
     int songCount = 14;
-    bool favorites[MAX_SONGS] = {false};
     int selected = -1; // 数组下标；传给 A/B 时使用 songs[selected].id。
     bool playing = false;
     int mode = 0;
@@ -58,10 +56,10 @@ private:
 
     QWidget *createListPanel(const QString &title, bool favoritePanel);
     QWidget *createControls();
-    void addSongRow(QListWidget *list, int index); // 两个列表共用
+    void addSongRow(QListWidget *list, int index, bool isFavorite = false); // 只负责显示
     void refreshLists();
     void selectSong(int index);
-    void toggleFavorite(int index);
+    void onFavoriteClicked(int index);
     void showSongInfo(int index);
     void togglePlay();
     void changeSong(int direction);
@@ -74,7 +72,6 @@ MusicWindow::MusicWindow()
     setObjectName("window");
     resize(1200, 760);
     setMinimumSize(960, 600);
-    favorites[1] = favorites[4] = favorites[8] = true;
 
     // 这段 QSS 只负责颜色和外观；先看下面的布局和 connect 即可。
     setStyleSheet(QStringLiteral(R"(
@@ -89,7 +86,7 @@ MusicWindow::MusicWindow()
         QPushButton { border: none; border-radius: 8px; background: transparent; }
         QPushButton:hover { background: #edf0f6; }
         QPushButton#heart { color: #939bab; font-family: 'Segoe UI Symbol'; font-size: 25px; }
-        QPushButton#heart:checked { color: #e55370; }
+        QPushButton#heart[favorite="true"] { color: #e55370; }
         QPushButton#more { color: #8991a0; font-size: 21px; }
         QPushButton#play { background: #5f6ee8; border-radius: 28px; }
         QPushButton#play:hover { background: #7180f0; }
@@ -136,7 +133,7 @@ MusicWindow::MusicWindow()
 
     // TODO A：data_load("data/songs.txt", "data/favorites.txt");
     //         songCount = data_get_songs(songs, MAX_SONGS);
-    //         从 data_is_favorite() 取得收藏状态，再 refreshLists()。
+    //         refreshLists() 中调用 A 的查询函数，显示收藏状态和收藏列表。
     // TODO B：player_init(); player_set_playlist(songs, songCount);
     //         用 QTimer 每 200ms 调 player_update()，读取真实状态、进度、歌曲 ID。
     //         程序关闭时调用 player_close()。
@@ -176,7 +173,7 @@ QWidget *MusicWindow::createListPanel(const QString &title, bool favoritePanel)
     return panel;
 }
 
-void MusicWindow::addSongRow(QListWidget *list, int index)
+void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite)
 {
     auto *item = new QListWidgetItem(list);
     item->setData(Qt::UserRole, index); // 每行记录歌曲下标。
@@ -198,12 +195,12 @@ void MusicWindow::addSongRow(QListWidget *list, int index)
     text->addWidget(title);
     text->addWidget(artist);
     layout->addLayout(text, 1);
-    auto *heart = new QPushButton(favorites[index] ? QStringLiteral("♥") : QStringLiteral("♡"), row);
+    // isFavorite 将由 A 的查询结果提供；这里只决定显示空心还是红心。
+    auto *heart = new QPushButton(isFavorite ? QStringLiteral("♥") : QStringLiteral("♡"), row);
     heart->setObjectName("heart");
     heart->setFixedSize(32, 36);
-    heart->setCheckable(true);
-    heart->setChecked(favorites[index]);
-    heart->setToolTip(favorites[index] ? QStringLiteral("取消收藏") : QStringLiteral("收藏"));
+    heart->setProperty("favorite", isFavorite);
+    heart->setToolTip(isFavorite ? QStringLiteral("取消收藏") : QStringLiteral("收藏（待接入）"));
     auto *more = new QPushButton(QStringLiteral("⋯"), row);
     more->setObjectName("more");
     more->setFixedSize(26, 36);
@@ -211,7 +208,7 @@ void MusicWindow::addSongRow(QListWidget *list, int index)
     layout->addWidget(heart);
     layout->addWidget(more);
     list->setItemWidget(item, row);
-    QObject::connect(heart, &QPushButton::clicked, this, [this, index]() { toggleFavorite(index); });
+    QObject::connect(heart, &QPushButton::clicked, this, [this, index]() { onFavoriteClicked(index); });
     QObject::connect(more, &QPushButton::clicked, this, [this, index]() { showSongInfo(index); });
     if (index == selected)
         list->setCurrentItem(item);
@@ -224,16 +221,12 @@ void MusicWindow::refreshLists()
     int favoriteScroll = favoriteList->verticalScrollBar()->value();
     songList->clear();
     favoriteList->clear();
-    int count = 0;
     for (int i = 0; i < songCount; ++i) {
+        // TODO A：用 data_is_favorite(songs[i].id) 的查询结果传给第三个参数。
         addSongRow(songList, i);
-        if (favorites[i]) {
-            addSongRow(favoriteList, i);
-            ++count;
-        }
     }
-    favoriteCount->setText(QStringLiteral("%1 首收藏%2").arg(count)
-        .arg(count == 0 ? QStringLiteral(" · 点击 ♡ 添加") : QString()));
+    // TODO A：data_get_favorites() 提供收藏歌曲；界面只负责逐行显示。
+    favoriteCount->setText(QStringLiteral("收藏功能待接入"));
     songCountLabel->setText(QStringLiteral("%1 首歌曲").arg(songCount));
     songList->doItemsLayout();
     favoriteList->doItemsLayout();
@@ -261,13 +254,11 @@ void MusicWindow::selectSong(int index)
     // TODO B：如旧歌正在播放，先 player_stop()；选中不等于立即播放。
 }
 
-void MusicWindow::toggleFavorite(int index)
+void MusicWindow::onFavoriteClicked(int index)
 {
-    // TODO A：data_add_favorite / data_remove_favorite 成功后再改界面；
-    //         data_save_favorites 保存。现在只是预览，退出不保存。
-    favorites[index] = !favorites[index];
-    // 下一轮事件循环再刷新，避免在按钮的点击回调里销毁按钮自身。
-    QTimer::singleShot(0, this, [this]() { refreshLists(); });
+    (void)index; // 占位时避免未使用参数警告，接入后删除这行。
+    // TODO：等 A 完成后，在这里调用她写的收藏查询、增删和保存函数。
+    // 调用成功后再刷新列表。界面不自行维护收藏数组，也不实现收藏增删。
 }
 
 void MusicWindow::showSongInfo(int index)
