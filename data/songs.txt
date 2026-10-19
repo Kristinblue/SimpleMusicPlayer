@@ -1,14 +1,4 @@
-1|晴天|示例歌手 A|夏日|music/01.wav
-2|夜空|示例歌手 B|夜航|music/02.wav
-3|山间的风|示例歌手 C|远方|music/03.wav
-4|慢慢走|示例歌手 A|夏日|music/04.wav
-5|雨后|示例歌手 D|四季|music/05.wav
-6|海岸线|示例歌手 B|夜航|music/06.wav
-7|晚风|示例歌手 C|远方|music/07.wav
-8|午后|示例歌手 D|四季|music/08.wav
-9|星光|示例歌手 B|夜航|music/09.wav
-10|旅途|示例歌手 C|远方|music/10.wav
-11|小城|示例歌手 A|夏日|music/11.wav
-12|初雪|示例歌手 D|四季|music/12.wav
-13|回声|示例歌手 C|远方|music/13.wav
-14|晨光|示例歌手 A|夏日|music/14.wav
+1|普通朋友|未知歌手|未知专辑|musiclist/普通朋友.wav
+2|sisters|未知歌手|未知专辑|musiclist/sisters.wav
+3|piano|未知歌手|未知专辑|musiclist/piano.wav
+

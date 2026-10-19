@@ -48,17 +48,25 @@ target_compile_options(SimpleMusicPlayer PRIVATE
 target_link_libraries(SimpleMusicPlayer PRIVATE Qt6::Widgets winmm)
 
 # 可选界面集成测试使用隔离的临时数据，不依赖 Qt Test，也不进入主程序源文件列表。
-option(SMP_BUILD_UI_TESTS "Build favorites UI integration tests" OFF)
+option(SMP_BUILD_UI_TESTS "Build UI integration tests" OFF)
 if(SMP_BUILD_UI_TESTS)
     enable_testing()
-    add_executable(FavoritesUiTest tests/favorites_ui_test.cpp src/data.c)
+    add_executable(FavoritesUiTest tests/favorites_ui_test.cpp src/data.c src/player.c)
     target_include_directories(FavoritesUiTest PRIVATE "${PROJECT_SOURCE_DIR}/include")
-    target_link_libraries(FavoritesUiTest PRIVATE Qt6::Widgets)
+    target_link_libraries(FavoritesUiTest PRIVATE Qt6::Widgets winmm)
     set_target_properties(FavoritesUiTest PROPERTIES C_STANDARD 17 CXX_STANDARD 17)
     target_compile_options(FavoritesUiTest PRIVATE
         -Wall -Wextra -Wpedantic -finput-charset=UTF-8 -fexec-charset=UTF-8)
     add_test(NAME favorites_ui COMMAND FavoritesUiTest)
     set_tests_properties(favorites_ui PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_executable(PlaybackUiTest tests/playback_ui_test.cpp src/data.c src/player.c)
+    target_include_directories(PlaybackUiTest PRIVATE "${PROJECT_SOURCE_DIR}/include")
+    target_link_libraries(PlaybackUiTest PRIVATE Qt6::Widgets winmm)
+    set_target_properties(PlaybackUiTest PROPERTIES C_STANDARD 17 CXX_STANDARD 17)
+    target_compile_options(PlaybackUiTest PRIVATE
+        -Wall -Wextra -Wpedantic -finput-charset=UTF-8 -fexec-charset=UTF-8)
+    add_test(NAME playback_ui COMMAND PlaybackUiTest)
+    set_tests_properties(playback_ui PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # 只复制程序运行需要的 DLL / 插件，不复制整个 Qt 或编译器。

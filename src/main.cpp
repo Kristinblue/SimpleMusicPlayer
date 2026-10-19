@@ -1,3 +1,5 @@
+//hyf的
+
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
@@ -7,6 +9,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QStyle>
 #include <QTimer>
@@ -14,20 +17,33 @@
 #include <QWidget>
 
 #include "data.h"
+#include "player.h"
 #include "song.h"
+
+// 将毫秒转换为分:秒；milliseconds 为进度或时长，返回显示文本。
+static QString formatTime(int milliseconds)
+{
+    int seconds = qMax(0, milliseconds) / 1000; // 已经过的整秒数。
+    return QStringLiteral("%1:%2").arg(seconds / 60, 2, 10, QLatin1Char('0'))
+        .arg(seconds % 60, 2, 10, QLatin1Char('0'));
+}
 
 // 小类只用来把控件、界面状态和回调放在一起，全部 Qt 代码都在本文件。
 // 使用已有信号连接 lambda，不需要自定义信号、Q_OBJECT 或 .ui 文件。
 class MusicWindow : public QWidget {
 public:
     MusicWindow();
+    ~MusicWindow() override;
 
 private:
     Song songs[MAX_SONGS] = {}; // 数据模块返回的歌曲副本，用于显示。
     int songCount = 0; // 实际从歌单文件加载的歌曲数。
     int selected = -1; // 数组下标；传给 A/B 时使用 songs[selected].id。
-    bool playing = false;
-    int mode = 0;
+    bool playerReady = false; // 播放模块是否初始化成功。
+    PlayerState displayedState = PLAYER_STOPPED; // 上一次显示的实际播放状态。
+    int mode = 0; // 与 PlayerMode 的三个枚举值对应。
+    int volumeValue = 70; // 上次成功设置的音量，失败时恢复滑块。
+    QTimer *playbackTimer; // 定时检测播放结束并更新界面。
 
     QListWidget *songList;
     QListWidget *favoriteList;
@@ -40,6 +56,7 @@ private:
     QPushButton *playButton;
     QPushButton *modeButton;
     QSlider *progress;
+    QSlider *volume; // 音量滑块。
 
     QWidget *createListPanel(const QString &title, bool favoritePanel);
     QWidget *createControls();
@@ -47,10 +64,13 @@ private:
     void refreshLists();
     void loadData(); // 读取文件并刷新界面；失败时显示错误，无参数、无返回值。
     void selectSong(int index);
+    void showSelectedSong(int index); // 只显示选中歌曲，不停止或开始播放。
     void onFavoriteClicked(int index);
     void showSongInfo(int index);
     void togglePlay();
     void changeSong(int direction);
+    void updatePlaybackUi(); // 读取实际状态、歌曲编号、进度和时长，无参数和返回值。
+    void showPlaybackError(const QString &message); // 显示播放错误，message 为原因，无返回值。
 };
 
 // ① 窗口整体布局
@@ -93,7 +113,7 @@ MusicWindow::MusicWindow()
     auto *header = new QHBoxLayout;
     auto *name = new QLabel(QStringLiteral("Simple Music"), this);
     name->setObjectName("heading");
-    status = new QLabel(QStringLiteral("收藏自动保存 · 音频尚未接入"), this);
+    status = new QLabel(QStringLiteral("收藏自动保存 · 请选择歌曲"), this);
     status->setObjectName("muted");
     header->addWidget(name);
     header->addStretch();
@@ -118,9 +138,31 @@ MusicWindow::MusicWindow()
     columns->addWidget(right, 1);
     root->addLayout(columns, 1);
     loadData();
-    // TODO B：player_init(); player_set_playlist(songs, songCount);
-    //         用 QTimer 每 200ms 调 player_update()，读取真实状态、进度、歌曲 ID。
-    //         程序关闭时调用 player_close()。
+    playerReady = player_init() == 0 && player_set_playlist(songs, songCount) == 0;
+    playbackTimer = new QTimer(this);
+    playbackTimer->setInterval(200);
+    QObject::connect(playbackTimer, &QTimer::timeout, this, [this]() {
+        if (player_update() != 0) {
+            // 查询失败时暂停轮询，避免每 200ms 重复报错；下次播放成功再启动。
+            playbackTimer->stop();
+            updatePlaybackUi();
+            status->setText(QStringLiteral("播放中断，请重新选择歌曲后播放"));
+            return;
+        }
+        updatePlaybackUi();
+    });
+    if (playerReady) playbackTimer->start();
+    else {
+        playButton->setEnabled(false);
+        status->setText(QStringLiteral("播放器初始化失败"));
+    }
+}
+
+// 窗口退出时停止轮询并关闭音频设备，无参数、无返回值。
+MusicWindow::~MusicWindow()
+{
+    playbackTimer->stop();
+    player_close();
 }
 
 // 读取歌单和收藏；加载失败显示空列表并提示，避免使用假数据覆盖旧收藏。
@@ -256,12 +298,22 @@ void MusicWindow::refreshLists()
 void MusicWindow::selectSong(int index)
 {
     if (index < 0 || index >= songCount) return;
+    if (index == selected) return; // 点击正在播放的同一首，不中断音频。
+    if (playerReady && player_get_current_id() >= 0 && player_stop() != 0) {
+        showPlaybackError(QStringLiteral("无法停止当前歌曲，请重试。"));
+        return;
+    }
+    showSelectedSong(index);
+    updatePlaybackUi();
+    status->setText(QStringLiteral("已选择歌曲，点击播放"));
+}
+
+// index 为歌曲下标；仅同步文字和两侧选中行，无返回值。
+void MusicWindow::showSelectedSong(int index)
+{
     selected = index;
-    playing = false;
     currentSong->setText(QStringLiteral("%1 · %2")
         .arg(QString::fromUtf8(songs[index].title)).arg(QString::fromUtf8(songs[index].artist)));
-    playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    status->setText(QStringLiteral("收藏自动保存 · 音频尚未接入"));
     // 同步两个列表的选中行，不重新创建控件。
     QListWidget *lists[] = {songList, favoriteList};
     for (QListWidget *list : lists) {
@@ -270,7 +322,6 @@ void MusicWindow::selectSong(int index)
             if (list->item(i)->data(Qt::UserRole).toInt() == index)
                 list->setCurrentRow(i);
     }
-    // TODO B：如旧歌正在播放，先 player_stop()；选中不等于立即播放。
 }
 
 // index 为界面歌曲下标；调用数据接口增删并保存，失败则恢复原状态，无返回值。
@@ -294,8 +345,7 @@ void MusicWindow::onFavoriteClicked(int index)
         return;
     }
     refreshLists();
-    status->setText(wasFavorite ? QStringLiteral("已取消收藏并保存 · 音频尚未接入")
-                                : QStringLiteral("已收藏并保存 · 音频尚未接入"));
+    status->setText(wasFavorite ? QStringLiteral("已取消收藏并保存") : QStringLiteral("已收藏并保存"));
 }
 
 void MusicWindow::showSongInfo(int index)
@@ -325,10 +375,12 @@ QWidget *MusicWindow::createControls()
     duration = new QLabel(QStringLiteral("--:--"), panel);
     elapsed->setObjectName("muted");
     duration->setObjectName("muted");
+    elapsed->setAccessibleName(QStringLiteral("当前播放时间"));
+    duration->setAccessibleName(QStringLiteral("歌曲总时长"));
     progress = new QSlider(Qt::Horizontal, panel);
     progress->setObjectName("progress");
-    progress->setRange(0, 100);
-    progress->setEnabled(false); // B 提供真实时长后启用，范围改为毫秒。
+    progress->setRange(0, 0);
+    progress->setEnabled(false); // 打开歌曲并取得时长后启用，数值单位为毫秒。
     timeline->addWidget(elapsed);
     timeline->addWidget(progress, 1);
     timeline->addWidget(duration);
@@ -350,7 +402,7 @@ QWidget *MusicWindow::createControls()
     playButton->setIconSize(QSize(26, 26));
     previous->setToolTip(QStringLiteral("上一首"));
     next->setToolTip(QStringLiteral("下一首"));
-    playButton->setToolTip(QStringLiteral("播放 / 暂停（界面预览）"));
+    playButton->setToolTip(QStringLiteral("播放 / 暂停"));
     buttons->addStretch();
     buttons->addWidget(previous);
     buttons->addSpacing(16);
@@ -364,7 +416,7 @@ QWidget *MusicWindow::createControls()
     modeButton = new QPushButton(QStringLiteral("顺序播放"), panel);
     modeButton->setObjectName("mode");
     modeButton->setFixedSize(90, 32);
-    auto *volume = new QSlider(Qt::Horizontal, panel);
+    volume = new QSlider(Qt::Horizontal, panel);
     volume->setObjectName("volume");
     volume->setRange(0, 100);
     volume->setValue(70);
@@ -380,44 +432,129 @@ QWidget *MusicWindow::createControls()
     QObject::connect(previous, &QPushButton::clicked, this, [this]() { changeSong(-1); });
     QObject::connect(next, &QPushButton::clicked, this, [this]() { changeSong(1); });
     QObject::connect(modeButton, &QPushButton::clicked, this, [this]() {
-        mode = (mode + 1) % 3;
+        if (!playerReady) return;
+        int nextMode = (mode + 1) % 3; // 将要设置的播放模式。
+        if (player_set_mode(static_cast<PlayerMode>(nextMode)) != 0) {
+            showPlaybackError(QStringLiteral("无法设置播放模式。"));
+            return;
+        }
+        mode = nextMode;
         const QString names[] = {QStringLiteral("顺序播放"), QStringLiteral("列表循环"), QStringLiteral("单曲循环")};
         modeButton->setText(names[mode]);
-        // TODO B：player_set_mode(static_cast<PlayerMode>(mode));
     });
-    QObject::connect(volume, &QSlider::valueChanged, this, [volumeLabel](int value) {
+    QObject::connect(volume, &QSlider::valueChanged, this, [this, volumeLabel](int value) {
+        if (!playerReady || player_set_volume(value) != 0) {
+            QSignalBlocker blocker(volume); // 恢复旧数值时不再次触发 valueChanged。
+            volume->setValue(volumeValue);
+            showPlaybackError(QStringLiteral("无法设置音量。"));
+            return;
+        }
+        volumeValue = value;
         volumeLabel->setText(QStringLiteral("音量 %1").arg(value));
-        // TODO B：player_set_volume(value);
+    });
+    QObject::connect(progress, &QSlider::sliderMoved, this, [this](int value) {
+        elapsed->setText(formatTime(value)); // 拖动时先预览目标时间。
     });
     QObject::connect(progress, &QSlider::sliderReleased, this, [this]() {
-        // TODO B：player_seek(progress->value());
-        // 更新进度时，用户正在拖动（isSliderDown）则暂不覆盖滑块位置。
+        if (!playerReady) return;
+        int result = player_seek(progress->value()); // 松开滑块后跳转真实音频进度。
+        updatePlaybackUi();
+        if (result != 0) showPlaybackError(QStringLiteral("无法跳转到该播放位置。"));
     });
     return panel;
 }
 
 void MusicWindow::togglePlay()
 {
-    if (songCount == 0) return;
+    if (!playerReady || songCount == 0) return;
     if (selected < 0) selectSong(0);
-    // TODO B：未开始时 player_play(songs[selected].id)；
-    //         播放中 player_pause()；暂停后 player_resume()。
-    //         用 player_get_state() 判断真实状态，成功后再更新图标。
-    playing = !playing;
-    playButton->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
-    status->setText(playing ? QStringLiteral("播放按钮预览 · 当前没有音频输出")
-                            : QStringLiteral("收藏自动保存 · 音频尚未接入"));
+    int result; // 本次播放、暂停或继续操作的返回值。
+    bool sameSong = player_get_current_id() == songs[selected].id; // 设备是否打开了选中的歌曲。
+    if (sameSong && player_get_state() == PLAYER_PLAYING)
+        result = player_pause();
+    else if (sameSong && player_get_state() == PLAYER_PAUSED)
+        result = player_resume();
+    else
+        result = player_play(songs[selected].id);
+    updatePlaybackUi();
+    if (result != 0) {
+        showPlaybackError(QStringLiteral("无法播放或暂停歌曲，请检查音频文件和系统音频设备。\n文件：%1")
+            .arg(QFileInfo(QString::fromUtf8(songs[selected].path)).absoluteFilePath()));
+        return;
+    }
+    playbackTimer->start();
 }
 
 void MusicWindow::changeSong(int direction)
 {
-    if (songCount == 0) return;
-    // 预览只改变选择；真正切歌和边界规则由 B 决定。
-    int index = selected < 0 ? 0 : selected + direction;
-    if (index < 0) index = songCount - 1;
-    if (index >= songCount) index = 0;
-    selectSong(index);
-    // TODO B：player_previous / player_next 返回歌曲 ID，转换为下标再显示。
+    if (!playerReady || songCount == 0) return;
+    int id; // B 返回的新歌曲编号，不是数组下标。
+    if (selected < 0) {
+        id = player_play(songs[0].id) == 0 ? songs[0].id : -1;
+    } else {
+        if (mode == PLAYER_ORDER && ((direction < 0 && selected == 0) ||
+                                     (direction > 0 && selected == songCount - 1))) {
+            status->setText(direction < 0 ? QStringLiteral("已经是第一首") : QStringLiteral("已经是最后一首"));
+            return;
+        }
+        if (player_get_current_id() == songs[selected].id)
+            id = direction < 0 ? player_previous() : player_next();
+        else {
+            // 手动选中了尚未播放的新歌，B 仍记着旧歌；此时按界面选择定位。
+            int index = (selected + direction + songCount) % songCount; // 目标歌曲下标。
+            id = player_play(songs[index].id) == 0 ? songs[index].id : -1;
+        }
+    }
+    updatePlaybackUi(); // 只同步显示，不调用会停止音频的 selectSong()。
+    if (id < 0) {
+        showPlaybackError(QStringLiteral("切歌失败，请检查对应的音频文件。"));
+        return;
+    }
+    playbackTimer->start();
+}
+
+// 从 B 查询状态和时间；自动切歌只同步显示，拖动滑块时不覆盖用户的位置。
+void MusicWindow::updatePlaybackUi()
+{
+    if (!playerReady) return;
+    PlayerState state = player_get_state(); // 当前真实播放状态。
+    int id = player_get_current_id(); // 当前设备的歌曲编号。
+    bool songChanged = false; // 是否发生了手动或自动切歌。
+    if (state != PLAYER_STOPPED) {
+        for (int i = 0; i < songCount; ++i) { // 查找歌曲编号对应的界面下标。
+            if (songs[i].id == id && selected != i) {
+                showSelectedSong(i);
+                songChanged = true;
+                break;
+            }
+        }
+    }
+    bool sameSong = selected >= 0 && songs[selected].id == id; // 避免显示上一首已停止音频的进度。
+    int total = sameSong ? player_get_duration() : 0; // 总时长，毫秒。
+    int position = sameSong ? player_get_position() : 0; // 当前进度，毫秒。
+    total = qMax(0, total);
+    position = qBound(0, position, total);
+    progress->setEnabled(total > 0);
+    if (!progress->isSliderDown()) {
+        progress->setRange(0, total);
+        progress->setValue(position);
+        elapsed->setText(formatTime(position));
+    }
+    duration->setText(total > 0 ? formatTime(total) : QStringLiteral("--:--"));
+    playButton->setIcon(style()->standardIcon(state == PLAYER_PLAYING ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+    playButton->setToolTip(state == PLAYER_PLAYING ? QStringLiteral("暂停") : QStringLiteral("播放"));
+    if (state != displayedState || songChanged) {
+        status->setText(state == PLAYER_PLAYING ? QStringLiteral("正在播放")
+            : state == PLAYER_PAUSED ? QStringLiteral("已暂停") : QStringLiteral("播放已停止"));
+    }
+    displayedState = state;
+}
+
+// message 是错误原因；统一显示提示，无返回值。
+void MusicWindow::showPlaybackError(const QString &message)
+{
+    status->setText(QStringLiteral("播放操作失败"));
+    QMessageBox::warning(this, QStringLiteral("播放失败"), message);
 }
 
 // ⑤ 程序入口，与笔记中的四步相同。
