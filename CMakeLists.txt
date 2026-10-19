@@ -26,7 +26,11 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/src/*.c"
     "${PROJECT_SOURCE_DIR}/src/*.cpp"
 )
-add_executable(SimpleMusicPlayer WIN32 ${SOURCES})
+# 收集公共头文件并列入目标，让 Qt Creator 可以显示和打开这些接口文件。
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/include/*.h"
+)
+add_executable(SimpleMusicPlayer WIN32 ${SOURCES} ${HEADERS})
 target_include_directories(SimpleMusicPlayer PRIVATE "${PROJECT_SOURCE_DIR}/include")
 set_target_properties(SimpleMusicPlayer PROPERTIES
     C_STANDARD 17
@@ -43,11 +47,28 @@ target_compile_options(SimpleMusicPlayer PRIVATE
 # 安装器提供动态 Qt，所以移除原来的全局 -static。
 target_link_libraries(SimpleMusicPlayer PRIVATE Qt6::Widgets winmm)
 
+# 可选界面集成测试使用隔离的临时数据，不依赖 Qt Test，也不进入主程序源文件列表。
+option(SMP_BUILD_UI_TESTS "Build favorites UI integration tests" OFF)
+if(SMP_BUILD_UI_TESTS)
+    enable_testing()
+    add_executable(FavoritesUiTest tests/favorites_ui_test.cpp src/data.c)
+    target_include_directories(FavoritesUiTest PRIVATE "${PROJECT_SOURCE_DIR}/include")
+    target_link_libraries(FavoritesUiTest PRIVATE Qt6::Widgets)
+    set_target_properties(FavoritesUiTest PROPERTIES C_STANDARD 17 CXX_STANDARD 17)
+    target_compile_options(FavoritesUiTest PRIVATE
+        -Wall -Wextra -Wpedantic -finput-charset=UTF-8 -fexec-charset=UTF-8)
+    add_test(NAME favorites_ui COMMAND FavoritesUiTest)
+    set_tests_properties(favorites_ui PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # 只复制程序运行需要的 DLL / 插件，不复制整个 Qt 或编译器。
 get_target_property(SMP_QMAKE Qt6::qmake IMPORTED_LOCATION)
 get_filename_component(SMP_QT_BIN "${SMP_QMAKE}" DIRECTORY)
 find_program(SMP_WINDEPLOYQT windeployqt HINTS "${SMP_QT_BIN}" NO_DEFAULT_PATH REQUIRED)
 add_custom_command(TARGET SimpleMusicPlayer POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:SimpleMusicPlayer>/data"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/data/songs.txt" "$<TARGET_FILE_DIR:SimpleMusicPlayer>/data/songs.txt"
     COMMAND "${CMAKE_COMMAND}" -E env
         --modify "PATH=path_list_prepend:${SMP_GCC_BIN}" --
         "${SMP_WINDEPLOYQT}" --no-translations --no-opengl-sw

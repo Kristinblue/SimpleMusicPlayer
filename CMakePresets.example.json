@@ -1,0 +1,41 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "qt-mingw-base",
+            "hidden": true,
+            "generator": "MinGW Makefiles",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "environment": {
+                "SMP_QT_ROOT": "C:/Qt",
+                "SMP_QT_VERSION": "6.12.0",
+                "SMP_MINGW_FOLDER": "mingw1310_64",
+                "PATH": "$env{SMP_QT_ROOT}/Tools/$env{SMP_MINGW_FOLDER}/bin;$env{SMP_QT_ROOT}/$env{SMP_QT_VERSION}/mingw_64/bin;$penv{PATH}"
+            },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "$env{SMP_QT_ROOT}/Tools/$env{SMP_MINGW_FOLDER}/bin/gcc.exe",
+                "CMAKE_CXX_COMPILER": "$env{SMP_QT_ROOT}/Tools/$env{SMP_MINGW_FOLDER}/bin/g++.exe",
+                "CMAKE_MAKE_PROGRAM": "$env{SMP_QT_ROOT}/Tools/$env{SMP_MINGW_FOLDER}/bin/mingw32-make.exe",
+                "CMAKE_PREFIX_PATH": "$env{SMP_QT_ROOT}/$env{SMP_QT_VERSION}/mingw_64",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Qt MinGW Debug",
+            "inherits": "qt-mingw-base",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        },
+        {
+            "name": "release",
+            "displayName": "Qt MinGW Release",
+            "inherits": "qt-mingw-base",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "debug", "configurePreset": "debug" },
+        { "name": "release", "configurePreset": "release" }
+    ]
+}

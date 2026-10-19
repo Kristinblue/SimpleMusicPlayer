@@ -4,6 +4,11 @@
 # 每个人的 Qt 安装路径和调试器路径不同，配置只保留在本机。
 /CMakePresets.json
 /.vscode/settings.json
+/.qtcreator/
+/.qtcreator-backup-*/
+/data/favorites.txt
+/data/favorites.txt.tmp
+~$*
 *.exe
 *.o
 *.obj

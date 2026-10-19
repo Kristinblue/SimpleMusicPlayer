@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -7,11 +9,12 @@
 #include <QScrollBar>
 #include <QSlider>
 #include <QStyle>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include "data.h"
-#include "player.h"
+#include "song.h"
 
 // 小类只用来把控件、界面状态和回调放在一起，全部 Qt 代码都在本文件。
 // 使用已有信号连接 lambda，不需要自定义信号、Q_OBJECT 或 .ui 文件。
@@ -20,24 +23,8 @@ public:
     MusicWindow();
 
 private:
-    // 临时示例数据：A 完成后，用 data_get_songs() 替换。没有对应音频。
-    Song songs[MAX_SONGS] = {
-        {1, "晴天", "示例歌手 A", "夏日", "music/01.wav"},
-        {2, "夜空", "示例歌手 B", "夜航", "music/02.wav"},
-        {3, "山间的风", "示例歌手 C", "远方", "music/03.wav"},
-        {4, "慢慢走", "示例歌手 A", "夏日", "music/04.wav"},
-        {5, "雨后", "示例歌手 D", "四季", "music/05.wav"},
-        {6, "海岸线", "示例歌手 B", "夜航", "music/06.wav"},
-        {7, "晚风", "示例歌手 C", "远方", "music/07.wav"},
-        {8, "午后", "示例歌手 D", "四季", "music/08.wav"},
-        {9, "星光", "示例歌手 B", "夜航", "music/09.wav"},
-        {10, "旅途", "示例歌手 C", "远方", "music/10.wav"},
-        {11, "小城", "示例歌手 A", "夏日", "music/11.wav"},
-        {12, "初雪", "示例歌手 D", "四季", "music/12.wav"},
-        {13, "回声", "示例歌手 C", "远方", "music/13.wav"},
-        {14, "晨光", "示例歌手 A", "夏日", "music/14.wav"}
-    };
-    int songCount = 14;
+    Song songs[MAX_SONGS] = {}; // 数据模块返回的歌曲副本，用于显示。
+    int songCount = 0; // 实际从歌单文件加载的歌曲数。
     int selected = -1; // 数组下标；传给 A/B 时使用 songs[selected].id。
     bool playing = false;
     int mode = 0;
@@ -58,6 +45,7 @@ private:
     QWidget *createControls();
     void addSongRow(QListWidget *list, int index, bool isFavorite = false); // 只负责显示
     void refreshLists();
+    void loadData(); // 读取文件并刷新界面；失败时显示错误，无参数、无返回值。
     void selectSong(int index);
     void onFavoriteClicked(int index);
     void showSongInfo(int index);
@@ -105,7 +93,7 @@ MusicWindow::MusicWindow()
     auto *header = new QHBoxLayout;
     auto *name = new QLabel(QStringLiteral("Simple Music"), this);
     name->setObjectName("heading");
-    status = new QLabel(QStringLiteral("界面预览 · 尚未接入音频和文件保存"), this);
+    status = new QLabel(QStringLiteral("收藏自动保存 · 音频尚未接入"), this);
     status->setObjectName("muted");
     header->addWidget(name);
     header->addStretch();
@@ -129,14 +117,30 @@ MusicWindow::MusicWindow()
     columns->addWidget(center, 2);
     columns->addWidget(right, 1);
     root->addLayout(columns, 1);
-    refreshLists();
-
-    // TODO A：data_load("data/songs.txt", "data/favorites.txt");
-    //         songCount = data_get_songs(songs, MAX_SONGS);
-    //         refreshLists() 中调用 A 的查询函数，显示收藏状态和收藏列表。
+    loadData();
     // TODO B：player_init(); player_set_playlist(songs, songCount);
     //         用 QTimer 每 200ms 调 player_update()，读取真实状态、进度、歌曲 ID。
     //         程序关闭时调用 player_close()。
+}
+
+// 读取歌单和收藏；加载失败显示空列表并提示，避免使用假数据覆盖旧收藏。
+void MusicWindow::loadData()
+{
+    if (data_load("data/songs.txt", "data/favorites.txt") == 0)
+        songCount = data_get_songs(songs, MAX_SONGS);
+    else
+        songCount = -1;
+    if (songCount < 0) {
+        songCount = 0;
+        status->setText(QStringLiteral("歌单或收藏文件读取失败"));
+        QTimer::singleShot(0, this, [this]() {
+            QMessageBox::warning(this, QStringLiteral("读取失败"),
+                QStringLiteral("无法读取歌单或收藏文件，请检查内容和权限。\n歌单：%1\n收藏：%2")
+                    .arg(QDir::current().filePath("data/songs.txt"),
+                         QDir::current().filePath("data/favorites.txt")));
+        });
+    }
+    refreshLists();
 }
 
 // ② 歌单和收藏夹共用同一种面板、同一种歌曲行
@@ -195,12 +199,15 @@ void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite)
     text->addWidget(title);
     text->addWidget(artist);
     layout->addLayout(text, 1);
-    // isFavorite 将由 A 的查询结果提供；这里只决定显示空心还是红心。
+    // 收藏状态由数据模块提供；界面只负责显示和发送操作。
     auto *heart = new QPushButton(isFavorite ? QStringLiteral("♥") : QStringLiteral("♡"), row);
     heart->setObjectName("heart");
     heart->setFixedSize(32, 36);
     heart->setProperty("favorite", isFavorite);
-    heart->setToolTip(isFavorite ? QStringLiteral("取消收藏") : QStringLiteral("收藏（待接入）"));
+    heart->setToolTip(isFavorite ? QStringLiteral("取消收藏") : QStringLiteral("收藏"));
+    heart->setAccessibleName(QStringLiteral("%1 %2")
+        .arg(isFavorite ? QStringLiteral("取消收藏") : QStringLiteral("收藏"),
+             QString::fromUtf8(songs[index].title)));
     auto *more = new QPushButton(QStringLiteral("⋯"), row);
     more->setObjectName("more");
     more->setFixedSize(26, 36);
@@ -208,7 +215,9 @@ void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite)
     layout->addWidget(heart);
     layout->addWidget(more);
     list->setItemWidget(item, row);
-    QObject::connect(heart, &QPushButton::clicked, this, [this, index]() { onFavoriteClicked(index); });
+    // 排队处理，等按钮自己的点击事件结束后，再刷新并销毁旧的歌曲行。
+    QObject::connect(heart, &QPushButton::clicked, this,
+        [this, index]() { onFavoriteClicked(index); }, Qt::QueuedConnection);
     QObject::connect(more, &QPushButton::clicked, this, [this, index]() { showSongInfo(index); });
     if (index == selected)
         list->setCurrentItem(item);
@@ -217,16 +226,25 @@ void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite)
 void MusicWindow::refreshLists()
 {
     // 刷新时保留滚动位置，点击收藏不会把歌单跳回顶部。
-    int songScroll = songList->verticalScrollBar()->value();
-    int favoriteScroll = favoriteList->verticalScrollBar()->value();
+    int songScroll = songList->verticalScrollBar()->value(); // 刷新前歌单滚动位置。
+    int favoriteScroll = favoriteList->verticalScrollBar()->value(); // 收藏列表滚动位置。
+    Song favoriteSongs[MAX_SONGS]; // 数据模块返回的收藏副本，不另行维护收藏状态。
+    int count = songCount ? data_get_favorites(favoriteSongs, MAX_SONGS) : 0; // 收藏数量。
     songList->clear();
     favoriteList->clear();
-    for (int i = 0; i < songCount; ++i) {
-        // TODO A：用 data_is_favorite(songs[i].id) 的查询结果传给第三个参数。
-        addSongRow(songList, i);
+    for (int i = 0; i < songCount; ++i) { // 当前显示的歌单下标。
+        addSongRow(songList, i, data_is_favorite(songs[i].id) == 1);
     }
-    // TODO A：data_get_favorites() 提供收藏歌曲；界面只负责逐行显示。
-    favoriteCount->setText(QStringLiteral("收藏功能待接入"));
+    for (int i = 0; i < count; ++i) { // 当前显示的收藏歌曲下标。
+        for (int j = 0; j < songCount; ++j) { // 将歌曲编号映射为界面数组下标。
+            if (songs[j].id == favoriteSongs[i].id) {
+                addSongRow(favoriteList, j, true);
+                break;
+            }
+        }
+    }
+    favoriteCount->setText(count < 0 ? QStringLiteral("收藏读取失败")
+                                   : QStringLiteral("%1 首收藏").arg(count));
     songCountLabel->setText(QStringLiteral("%1 首歌曲").arg(songCount));
     songList->doItemsLayout();
     favoriteList->doItemsLayout();
@@ -237,12 +255,13 @@ void MusicWindow::refreshLists()
 // ③ 歌曲选择、收藏和信息按钮
 void MusicWindow::selectSong(int index)
 {
+    if (index < 0 || index >= songCount) return;
     selected = index;
     playing = false;
     currentSong->setText(QStringLiteral("%1 · %2")
         .arg(QString::fromUtf8(songs[index].title)).arg(QString::fromUtf8(songs[index].artist)));
     playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    status->setText(QStringLiteral("界面预览 · 尚未接入音频和文件保存"));
+    status->setText(QStringLiteral("收藏自动保存 · 音频尚未接入"));
     // 同步两个列表的选中行，不重新创建控件。
     QListWidget *lists[] = {songList, favoriteList};
     for (QListWidget *list : lists) {
@@ -254,17 +273,36 @@ void MusicWindow::selectSong(int index)
     // TODO B：如旧歌正在播放，先 player_stop()；选中不等于立即播放。
 }
 
+// index 为界面歌曲下标；调用数据接口增删并保存，失败则恢复原状态，无返回值。
 void MusicWindow::onFavoriteClicked(int index)
 {
-    (void)index; // 占位时避免未使用参数警告，接入后删除这行。
-    // TODO：等 A 完成后，在这里调用她写的收藏查询、增删和保存函数。
-    // 调用成功后再刷新列表。界面不自行维护收藏数组，也不实现收藏增删。
+    if (index < 0 || index >= songCount) return;
+    int id = songs[index].id; // 数据接口使用的歌曲编号。
+    int wasFavorite = data_is_favorite(id); // 用于切换收藏及保存失败后的回滚。
+    if (wasFavorite < 0 ||
+        (wasFavorite ? data_remove_favorite(id) : data_add_favorite(id)) != 0) {
+        QMessageBox::warning(this, QStringLiteral("收藏失败"), QStringLiteral("歌曲不存在，无法修改收藏。"));
+        return;
+    }
+    if (data_save_favorites("data/favorites.txt") != 0) {
+        // 保存未成功时，内存也恢复到操作之前，保证红心和文件内容一致。
+        if (wasFavorite) data_add_favorite(id);
+        else data_remove_favorite(id);
+        QMessageBox::warning(this, QStringLiteral("保存失败"),
+            QStringLiteral("收藏未保存，本次操作已撤销。请检查 data 目录的写入权限，"
+                           "以及是否存在未处理的 favorites.txt.tmp 文件。"));
+        return;
+    }
+    refreshLists();
+    status->setText(wasFavorite ? QStringLiteral("已取消收藏并保存 · 音频尚未接入")
+                                : QStringLiteral("已收藏并保存 · 音频尚未接入"));
 }
 
 void MusicWindow::showSongInfo(int index)
 {
-    const Song &song = songs[index];
-    // TODO A：需要重新查询时，用 data_find_song(song.id, &result)。
+    if (index < 0 || index >= songCount) return;
+    Song song; // 数据模块查询得到的歌曲信息副本。
+    if (data_find_song(songs[index].id, &song) != 0) return;
     QMessageBox::information(this, QStringLiteral("歌曲信息"),
         QStringLiteral("编号：%1\n歌名：%2\n歌手：%3\n专辑：%4\n文件：%5")
             .arg(song.id).arg(QString::fromUtf8(song.title)).arg(QString::fromUtf8(song.artist))
@@ -368,7 +406,7 @@ void MusicWindow::togglePlay()
     playing = !playing;
     playButton->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
     status->setText(playing ? QStringLiteral("播放按钮预览 · 当前没有音频输出")
-                            : QStringLiteral("界面预览 · 尚未接入音频和文件保存"));
+                            : QStringLiteral("收藏自动保存 · 音频尚未接入"));
 }
 
 void MusicWindow::changeSong(int direction)
@@ -387,6 +425,13 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     app.setStyle("Fusion");
+    // Qt Creator 与双击启动使用相同的数据目录；分发时使用程序旁的 data 目录。
+    QDir root(QApplication::applicationDirPath()); // 可执行文件所在目录。
+    if (QFileInfo::exists(root.filePath("../../data/songs.txt"))) root.cd("../..");
+    if (!QDir::setCurrent(root.absolutePath())) {
+        QMessageBox::critical(nullptr, QStringLiteral("启动失败"), QStringLiteral("无法进入数据所在目录。"));
+        return 1;
+    }
     MusicWindow window;
     window.show();
     return app.exec();
