@@ -1,26 +1,18 @@
 //hyf的
-
-// 项目接口。
 #include "main.h"
 #include "data.h"
 #include "player.h"
 
-// Qt 应用和提示窗口。
 #include <QApplication>
 #include <QMessageBox>
 
-// Qt 布局。
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 
-// Qt 文件和辅助工具。
-#include <QDir>
-#include <QFileInfo>
 #include <QScrollBar>
 #include <QStyle>
 
 
-// 将毫秒换成分:秒；t_ms 为毫秒数，返回时间文字。
 static QString formatTime(int t_ms)
 {
     if (t_ms < 0) t_ms = 0; // 时间不能小于零。
@@ -201,7 +193,7 @@ QWidget *MusicWindow::createListPanel(QString title, bool favoritePanel)
 // list 是要添加歌曲的列表，index 是 songs 数组下标，isFavorite 表示是否已收藏；无返回值。
 //两个列表分别有index，每首歌都有userrole
 void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite) // 创建一首歌曲对应的列表行。
-{//水平layout，竖直text
+{
     QListWidgetItem *item = new QListWidgetItem(list); // 创建列表项，并把它加入 list。
     //Qt::UserRole 是 Qt 预定义的枚举值
     item->setData(Qt::UserRole, index); // 存下标
@@ -454,7 +446,7 @@ void MusicWindow::togglePlay()
 {
     if (!playerReady || songCount == 0) return;
     if (selected < 0) selectSong(0);
-    int result; // 本次播放、暂停或继续操作的返回值。
+    int result; // 本次播放、暂停或继续操作的返回值。后面还要检查是否出错
     PlayerState state = player_get_state(); // 查询一次实际状态，决定调用哪个接口。
     bool sameSong = player_get_current_id() == songs[selected].id; // 设备是否打开了选中的歌曲。
     if (sameSong && state == PLAYER_PLAYING)
@@ -479,8 +471,6 @@ void MusicWindow::changeSong(int direction)
     int index = selected < 0 ? 0 : selected + direction;
     // 第一首还往上，或者最后一首还往下的情况
     if (index < 0 || index >= songCount) {
-        if (mode == PLAYER_ORDER)
-            return;
         index = index < 0 ? songCount - 1 : 0;
         //左边是index<0,右边是index>=songcount的情况。一往前，最后往后。
     }
