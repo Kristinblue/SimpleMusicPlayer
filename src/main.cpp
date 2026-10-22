@@ -475,24 +475,20 @@ void MusicWindow::togglePlay()
 void MusicWindow::changeSong(int direction)
 {
     if (!playerReady || songCount == 0) return;
-    int id; // B 返回的新歌曲编号，不是数组下标。
-    if (selected < 0) {
-        id = player_play(songs[0].id) == 0 ? songs[0].id : -1;
-    } else {
-        if (mode == PLAYER_ORDER && ((direction < 0 && selected == 0) ||
-                                     (direction > 0 && selected == songCount - 1))) {
+    // 计算目标歌曲下标
+    int index = selected < 0 ? 0 : selected + direction;
+    // 第一首还往上，或者最后一首还往下的情况
+    if (index < 0 || index >= songCount) {
+        if (mode == PLAYER_ORDER)
             return;
-        }
-        if (player_get_current_id() == songs[selected].id)
-            id = direction < 0 ? player_previous() : player_next();
-        else {
-            // 手动选中了尚未播放的新歌，B 仍记着旧歌；此时按界面选择定位。
-            int index = (selected + direction + songCount) % songCount; // 目标歌曲下标。
-            id = player_play(songs[index].id) == 0 ? songs[index].id : -1;
-        }
+        index = index < 0 ? songCount - 1 : 0;
+        //左边是index<0,右边是index>=songcount的情况。一往前，最后往后。
     }
-    updatePlaybackUi(); // 只同步显示，不调用会停止音频的 selectSong()。
-    if (id < 0) {
+    //播放正确处理切歌后的目标歌曲
+    int result = player_play(songs[index].id);
+    updatePlaybackUi();
+
+    if (result != 0) {
         showPlaybackError("切歌失败，请检查音频文件。");
         return;
     }
@@ -506,16 +502,16 @@ void MusicWindow::updatePlaybackUi()
     PlayerState state = player_get_state(); // 当前真实播放状态。
     int index = findSongIndex(player_get_current_id()); // 当前播放歌曲的界面下标。
     if (state != PLAYER_STOPPED && index >= 0 && selected != index)
-        showSelectedSong(index);
-    bool sameSong = selected >= 0 && selected == index; // 避免显示上一首已停止音频的进度。
-    int total = sameSong ? player_get_duration() : 0; // 总时长，毫秒。
-    int position = sameSong ? player_get_position() : 0; // 当前进度，毫秒。
+        showSelectedSong(index);// 播放器切换了歌曲且未停止时，同步界面的当前歌曲。
+    bool sameSong = selected >= 0 && selected == index; // 界面选中的歌曲，和播放器实际打开的歌曲是否相同。
+    int total = sameSong ? player_get_duration() : 0; 
+    int position = sameSong ? player_get_position() : 0; 
     if (total < 0) total = 0;
     if (position < 0) position = 0;
     if (position > total) position = total;
-    progress->setEnabled(total > 0);
-    if (!progress->isSliderDown()) {
-        progress->setRange(0, total);
+    progress->setEnabled(total > 0);// 总时长大于零（是有效时长）时才启用滑块。
+    if (!progress->isSliderDown()) {//只有用户没有正在拖动滑块时，才允许程序自动更新进度条。
+        progress->setRange(0, total);//设置滑块允许的数值范围
         progress->setValue(position);
         elapsed->setText(formatTime(position));
     }
@@ -539,16 +535,9 @@ void MusicWindow::showPlaybackError(QString message)
 // ⑤ 程序入口：创建应用、窗口并进入事件循环；返回退出状态码。
 int main(int argc, char *argv[])
 {
-    QApplication app(argc, argv);
-    app.setStyle("Fusion");
-    // Qt Creator 与双击启动使用相同的数据目录；分发时使用程序旁的 data 目录。
-    QDir root(QApplication::applicationDirPath()); // 可执行文件所在目录。
-    if (QFileInfo::exists(root.filePath("../../data/songs.txt"))) root.cd("../..");
-    if (!QDir::setCurrent(root.absolutePath())) {
-        QMessageBox::critical(nullptr, "启动失败", "无法进入数据所在目录。");
-        return 1;
-    }
-    MusicWindow window;
-    window.show();
+    QApplication app(argc, argv);//要接收参数
+    app.setStyle("Fusion");//Fusion 是 Qt 内置的一套界面风格，会影响按钮、滑块、滚动条等控件的默认外观。
+    MusicWindow window;//创建对象，构造函数前面写过了
+    window.show();//调用从 QWidget 继承来的 show() 成员函数。
     return app.exec();
 }
