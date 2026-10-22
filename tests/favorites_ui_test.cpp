@@ -82,6 +82,8 @@ int main(int argc, char *argv[])
         check(favorites->count() == 2 && readText("data/favorites.txt") == "20\n3\n", "playlist order");
         favorites->itemClicked(favorites->item(1));
         check(songs->currentRow() == 1, "favorite selection uses song ID mapping");
+        closeWarning(QStringLiteral("歌曲信息"));
+        songs->itemWidget(songs->item(1))->findChild<QPushButton *>("more")->click();
         clickHeart(favorites, 0);
         check(favorites->count() == 1 && readText("data/favorites.txt") == "3\n", "remove from favorites");
         check(songs->currentRow() == 1, "selection survives refresh");

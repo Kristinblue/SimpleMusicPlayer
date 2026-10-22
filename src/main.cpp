@@ -1,104 +1,121 @@
 //hyf的
 
+// 项目接口。
 #include "main.h"
 #include "data.h"
 #include "player.h"
 
-// Qt 应用与提示窗口。
+// Qt 应用和提示窗口。
 #include <QApplication>
 #include <QMessageBox>
 
-// Qt 布局：水平排列和垂直排列。
+// Qt 布局。
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 
-// Qt 文件与目录。
+// Qt 文件和辅助工具。
 #include <QDir>
 #include <QFileInfo>
-
-// Qt 控件辅助：滚动条、信号阻断和标准图标。
 #include <QScrollBar>
-#include <QSignalBlocker>
 #include <QStyle>
 
-// 将毫秒转换为分:秒；milliseconds 为进度或时长，返回显示文本。
-static QString formatTime(int milliseconds)
+
+// 将毫秒换成分:秒；t_ms 为毫秒数，返回时间文字。
+static QString formatTime(int t_ms)
 {
-    if (milliseconds < 0) milliseconds = 0; // 时间不能小于零。
-    int totalSeconds = milliseconds / 1000; // 毫秒换算为总秒数。
+    if (t_ms < 0) t_ms = 0; // 时间不能小于零。
+    int totalSeconds = t_ms / 1000;
     int minutes = totalSeconds / 60;        // 完整的分钟数。
     int seconds = totalSeconds % 60;        // 不足一分钟的剩余秒数。
     return QString::asprintf("%02d:%02d", minutes, seconds); // 不足两位时补 0。
 }
 
-// ① 窗口整体布局
+// ① 创建三栏布局，再读取数据、初始化播放器和定时器。
 MusicWindow::MusicWindow()
 {
-    setWindowTitle(QStringLiteral("Simple Music Player"));
+    setWindowTitle("Simple Music Player");
     setObjectName("window");
     resize(1200, 760);
     setMinimumSize(960, 600);
 
-    // 这段 QSS 只负责颜色和外观；先看下面的布局和 connect 即可。
     setStyleSheet(QStringLiteral(R"(
         QWidget { color: #293448; font-family: 'Microsoft YaHei'; font-size: 13px; }
         QWidget#window { background: #f5f6fa; }
         QWidget#panel { background: white; border-radius: 14px; }
         QLabel#heading { font-size: 19px; font-weight: bold; }
-        QLabel#muted { color: #8790a0; font-size: 11px; }
+        QLabel#muted { color: #8790a0; font-size: 11px; } /* 弱化文本 */
+        /* 弹窗使用浅色背景和深色文字 */
+        QMessageBox { background: white; }
+        QMessageBox QLabel { color: #293448; background: transparent; }
+        QMessageBox QPushButton { color: #293448; background: #edf0ff; min-width: 64px; padding: 6px 16px; }
+        QMessageBox QPushButton:hover { background: #dfe5ff; }
         QListWidget { border: none; background: transparent; outline: none; }
         QListWidget::item { border-radius: 8px; }
         QListWidget::item:selected { background: #edf0ff; }
+
+
         QPushButton { border: none; border-radius: 8px; background: transparent; }
         QPushButton:hover { background: #edf0f6; }
+
         QPushButton#heart { color: #939bab; font-family: 'Segoe UI Symbol'; font-size: 25px; }
         QPushButton#heart[favorite="true"] { color: #e55370; }
         QPushButton#more { color: #8991a0; font-size: 21px; }
         QPushButton#play { background: #5f6ee8; border-radius: 28px; }
         QPushButton#play:hover { background: #7180f0; }
+
+
         QSlider::groove:horizontal { height: 4px; background: #e5e8ef; border-radius: 2px; }
         QSlider::sub-page:horizontal { background: #7481e9; border-radius: 2px; }
         QSlider::handle:horizontal { width: 12px; margin: -4px 0; background: #7481e9; border-radius: 6px; }
+
         QScrollBar:vertical { width: 8px; background: transparent; margin: 0; }
         QScrollBar::handle:vertical { background: #d8dde7; min-height: 30px; border-radius: 4px; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
     )"));
 
-    auto *root = new QVBoxLayout(this);
+    QVBoxLayout *root = new QVBoxLayout(this); //根布局
+    //使用new运算符可以创建一个新的对象，并返回指向该对象的指针
     root->setContentsMargins(24, 20, 24, 24);
     root->setSpacing(18);
-    auto *name = new QLabel(QStringLiteral("Simple Music"), this);
+    QLabel *name = new QLabel("Simple Music Player", this);//文字，主窗口指针
     name->setObjectName("heading");
     root->addWidget(name);
 
     // 1 : 2 : 1，左右各约四分之一；中间上方留空，下方放播放控制。
-    auto *columns = new QHBoxLayout;
+    QHBoxLayout *columns = new QHBoxLayout;//无参构造函数。这里是嵌套布局。要么直接装到主窗口，要么后面嵌套进去
     columns->setSpacing(18);
-    QWidget *left = createListPanel(QStringLiteral("歌单"), false);
-    QWidget *right = createListPanel(QStringLiteral("收藏夹"), true);
-    auto *center = new QWidget(this);
-    auto *centerLayout = new QVBoxLayout(center);
-    centerLayout->setContentsMargins(0, 0, 0, 0);
-    centerLayout->addStretch();
-    centerLayout->addWidget(createControls());
+    QWidget *left = createListPanel("歌单", false);//后面创建的，歌单与收藏夹我们用同一个函数，只是判断一下是不是
     left->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
-    center->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+
+    QWidget *right = createListPanel("收藏夹", true);
     right->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+
+    QWidget *center = new QWidget(this);
+    QVBoxLayout *centerLayout = new QVBoxLayout(center);
+    centerLayout->setContentsMargins(0, 0, 0, 0);
+    centerLayout->addStretch();//插入会伸缩的空白
+    centerLayout->addWidget(createControls());
+    
+    center->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+   
     columns->addWidget(left, 1);
     columns->addWidget(center, 2);
-    columns->addWidget(right, 1);
-    root->addLayout(columns, 1);
-    loadData();
+    columns->addWidget(right, 1);//拉伸因子
+
+    root->addLayout(columns, 1);//name是0，columns占大部分
+
+    loadData();//加载歌曲数据和刷新列表
     playerReady = player_init() == 0 && player_set_playlist(songs, songCount) == 0;
     playbackTimer = new QTimer(this);
     playbackTimer->setInterval(200);
+    //建立信号与回调的连接（发出信号的对象，定时器的超时信号，接收上下文，也就是当前窗口，收到信号后执行的 Lambda 函数）
     QObject::connect(playbackTimer, &QTimer::timeout, this, [this]() {
         if (player_update() != 0) {
-            // 查询失败时暂停轮询，避免每 200ms 重复报错；下次播放成功再启动。
+            // 查询失败时暂停轮询，避免每 200ms 重复弹报错窗口
             playbackTimer->stop();
             updatePlaybackUi();
-            showPlaybackError(QStringLiteral("播放中断，请重新选择歌曲后播放。"));
+            showPlaybackError("播放中断，请重试。");
             return;
         }
         updatePlaybackUi();
@@ -106,145 +123,173 @@ MusicWindow::MusicWindow()
     if (playerReady) playbackTimer->start();
     else {
         playButton->setEnabled(false);
-        QTimer::singleShot(0, this, [this]() {
-            showPlaybackError(QStringLiteral("播放器初始化失败。"));
+        QTimer::singleShot(0, this, [this]() {//只触发一次
+            showPlaybackError("播放器初始化失败。");
         });
     }
 }
 
-// 窗口退出时停止轮询并关闭音频设备，无参数、无返回值。
+// 退出窗口时释放播放资源，无参数、无返回值。
 MusicWindow::~MusicWindow()
 {
     playbackTimer->stop();
     player_close();
+    //公开继承qwidegt的虚析构函数，我们重写一下
 }
 
-// 读取歌单和收藏；加载失败显示空列表并提示，避免使用假数据覆盖旧收藏。
+// 读取歌单和收藏，失败时提示。songcount是实际加载的歌曲数
+//把底层的函数再包装一下弄到界面里
 void MusicWindow::loadData()
 {
-    if (data_load("data/songs.txt", "data/favorites.txt") == 0)
-        songCount = data_get_songs(songs, MAX_SONGS);
+    if (data_load("data/songs.txt", "data/favorites.txt") == 0)//成功返回0
+        songCount = data_get_songs(songs, MAX_SONGS);//songs是交互准备的songs数组
     else
         songCount = -1;
     if (songCount < 0) {
         songCount = 0;
         QTimer::singleShot(0, this, [this]() {
-            QMessageBox::warning(this, QStringLiteral("读取失败"),
-                QStringLiteral("无法读取歌单或收藏文件，请检查内容和权限。\n歌单：%1\n收藏：%2")
-                    .arg(QDir::current().filePath("data/songs.txt"),
-                         QDir::current().filePath("data/favorites.txt")));
+            QMessageBox::warning(this, "读取失败",//对话框标题
+                "歌单或收藏读取失败。");//提示内容
         });
     }
     refreshLists();
 }
 
-// ② 歌单和收藏夹共用同一种面板、同一种歌曲行
-QWidget *MusicWindow::createListPanel(const QString &title, bool favoritePanel)
-{
-    auto *panel = new QWidget(this);
+// title 为标题，favoritePanel 指定是否为收藏列表；返回创建的面板。
+QWidget *MusicWindow::createListPanel(QString title, bool favoritePanel)
+/*
+    创建一个完整的列表面板，包含标题、歌曲数量和歌曲列表，最后把这个面板返回。
+    */
+{//先创建布局，两个统一的
+    QWidget *panel = new QWidget(this);
     panel->setObjectName("panel");
-    auto *layout = new QVBoxLayout(panel);
+    QVBoxLayout *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(16, 20, 10, 12);
     layout->setSpacing(12);
-    auto *heading = new QLabel(title, panel);
+    QLabel *heading = new QLabel(title, panel);
     heading->setObjectName("heading");
-    auto *count = new QLabel(panel);
+    QLabel *count = new QLabel(panel);
     count->setObjectName("muted");
-    auto *list = new QListWidget(panel);
+
+    QListWidget *list = new QListWidget(panel);//创建列表控件。临时保存本次创建的列表对象，之后要转给具体两侧的列表控件
     list->setObjectName(favoritePanel ? "favoriteList" : "songList");
     list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    list->setResizeMode(QListView::Adjust); // 窗口缩小时，歌曲行跟着变窄。
+    list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);//按像素滚动，而不是按整行滚动
+    list->setResizeMode(QListView::Adjust); // 列表尺寸变化时，重新调整列表项的布局
+
     layout->addWidget(heading);
     layout->addWidget(count);
     layout->addWidget(list, 1);
     if (favoritePanel) {
+        //判断当前创建的是哪个面板，把对应的控件地址保存到正确的成员变量里。
+        //之后还要调用呢
         favoriteList = list;
         favoriteCount = count;
     } else {
         songList = list;
         songCountLabel = count;
     }
+    //发出信号的列表控件，用户点击列表项时发出的信号，当前 MusicWindow，作为回调上下文，收到信号后执行的 Lambda
     QObject::connect(list, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
-        selectSong(item->data(Qt::UserRole).toInt());
+        selectSong(item->data(Qt::UserRole).toInt()); //取下标
     });
     return panel;
 }
 
-void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite)
-{
-    auto *item = new QListWidgetItem(list);
-    item->setData(Qt::UserRole, index); // 每行记录歌曲下标。
-    item->setSizeHint(QSize(0, 68));
-    auto *row = new QWidget;
-    auto *layout = new QHBoxLayout(row);
-    layout->setContentsMargins(8, 8, 2, 8);
-    layout->setSpacing(2);
-    auto *text = new QVBoxLayout;
-    text->setSpacing(5);
-    auto *title = new QLabel(QString::fromUtf8(songs[index].title), row);
-    auto *artist = new QLabel(QString::fromUtf8(songs[index].artist), row);
-    artist->setObjectName("muted");
-    title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    artist->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    title->setToolTip(title->text());
-    title->setAttribute(Qt::WA_TransparentForMouseEvents);
-    artist->setAttribute(Qt::WA_TransparentForMouseEvents);
-    text->addWidget(title);
-    text->addWidget(artist);
-    layout->addLayout(text, 1);
-    // 收藏状态由数据模块提供；界面只负责显示和发送操作。
-    auto *heart = new QPushButton(isFavorite ? QStringLiteral("♥") : QStringLiteral("♡"), row);
-    heart->setObjectName("heart");
-    heart->setFixedSize(32, 36);
-    heart->setProperty("favorite", isFavorite);
-    heart->setToolTip(isFavorite ? QStringLiteral("取消收藏") : QStringLiteral("收藏"));
-    heart->setAccessibleName(QStringLiteral("%1 %2")
-        .arg(isFavorite ? QStringLiteral("取消收藏") : QStringLiteral("收藏"),
-             QString::fromUtf8(songs[index].title)));
-    auto *more = new QPushButton(QStringLiteral("⋯"), row);
-    more->setObjectName("more");
-    more->setFixedSize(26, 36);
-    more->setToolTip(QStringLiteral("歌曲信息"));
-    layout->addWidget(heart);
-    layout->addWidget(more);
-    list->setItemWidget(item, row);
-    // 排队处理，等按钮自己的点击事件结束后，再刷新并销毁旧的歌曲行。
-    QObject::connect(heart, &QPushButton::clicked, this,
-        [this, index]() { onFavoriteClicked(index); }, Qt::QueuedConnection);
-    QObject::connect(more, &QPushButton::clicked, this, [this, index]() { showSongInfo(index); });
-    if (index == selected)
-        list->setCurrentItem(item);
-}
+// 在 list 中显示 songs[index]；isFavorite 决定爱心外观
+// list 是要添加歌曲的列表，index 是 songs 数组下标，isFavorite 表示是否已收藏；无返回值。
+//两个列表分别有index，每首歌都有userrole
+void MusicWindow::addSongRow(QListWidget *list, int index, bool isFavorite) // 创建一首歌曲对应的列表行。
+{//水平layout，竖直text
+    QListWidgetItem *item = new QListWidgetItem(list); // 创建列表项，并把它加入 list。
+    //Qt::UserRole 是 Qt 预定义的枚举值
+    item->setData(Qt::UserRole, index); // 存下标
+    item->setSizeHint(QSize(0, 68)); // 行高建议
+    QWidget *row = new QWidget; // 创建容器，放这一行的歌名、歌手和按钮。
+    QHBoxLayout *layout = new QHBoxLayout(row); // 给 row 设置水平布局，让文字和按钮左右排列。
+    layout->setContentsMargins(8, 8, 2, 8); 
+    layout->setSpacing(2); 
 
+    QVBoxLayout *text = new QVBoxLayout; // 歌名、歌手的垂直布局
+    text->setSpacing(5); 
+
+    QLabel *title = new QLabel(QString::fromUtf8(songs[index].title), row); // 把 UTF-8 歌名转成 Qt 字符串，创建歌名标签。
+    QLabel *artist = new QLabel(QString::fromUtf8(songs[index].artist), row); 
+    artist->setObjectName("muted"); 
+    title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // 宽度忽略控件建议的尺寸，交给布局分配空间；优先采用控件建议的尺寸，必要时允许调整
+    artist->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); 
+    //setAttribute(属性, 是否启用);默认启用。这里鼠标事件忽略它们
+    title->setAttribute(Qt::WA_TransparentForMouseEvents); 
+    artist->setAttribute(Qt::WA_TransparentForMouseEvents); 
+    text->addWidget(title); 
+    text->addWidget(artist); 
+    layout->addLayout(text, 1);
+  
+    QPushButton *heart = new QPushButton(isFavorite ? "♥" : "♡", row); 
+    heart->setObjectName("heart"); 
+    heart->setFixedSize(32, 36); 
+    heart->setProperty("favorite", isFavorite); // 保存收藏属性，QSS 根据它决定是否显示红色。
+    heart->setToolTip(isFavorite ? "取消收藏" : "收藏"); 
+
+    QPushButton *more = new QPushButton("⋯", row); 
+    more->setObjectName("more"); 
+    more->setFixedSize(26, 36);
+    more->setToolTip("歌曲信息"); 
+    layout->addWidget(heart); 
+    layout->addWidget(more); 
+    list->setItemWidget(item, row); // 用做好的 row 作为这个列表项的显示内容，交给列表管理。
+    QObject::connect(heart, &QPushButton::clicked, this, 
+        [this, index]() { onFavoriteClicked(index); }); // 记住当前窗口和歌曲下标，点击后调用收藏处理函数。
+    QObject::connect(more, &QPushButton::clicked, this, [this, index]() { showSongInfo(index); }); // 点击三个点时，把这首歌的下标交给信息显示函数。
+    if (index == selected) 
+        list->setCurrentItem(item); 
+} 
+
+// 从 A 查询收藏状态，刷新两侧列表并保留选择和滚动位置，无参数、无返回值。
 void MusicWindow::refreshLists()
 {
-    // 刷新时保留滚动位置，点击收藏不会把歌单跳回顶部。
-    int songScroll = songList->verticalScrollBar()->value(); // 刷新前歌单滚动位置。
-    int favoriteScroll = favoriteList->verticalScrollBar()->value(); // 收藏列表滚动位置。
-    Song favoriteSongs[MAX_SONGS]; // 数据模块返回的收藏副本，不另行维护收藏状态。
-    int count = songCount ? data_get_favorites(favoriteSongs, MAX_SONGS) : 0; // 收藏数量。
+    int songScroll = songList->verticalScrollBar()->value(); // 先保存滚动条当前的位置数值。
+    int favoriteScroll = favoriteList->verticalScrollBar()->value(); 
+    int count = 0; // 当前收藏歌曲数。
+    //刷新的时候，全部清空再重新创建
     songList->clear();
     favoriteList->clear();
-    for (int i = 0; i < songCount; ++i) { // 当前显示的歌单下标。
-        addSongRow(songList, i, data_is_favorite(songs[i].id) == 1);
+    for (int i = 0; i < songCount; ++i) { // 当前歌曲下标。
+        bool favorite = data_is_favorite(songs[i].id) == 1; // 由 A 查询收藏状态。
+        addSongRow(songList, i, favorite);
+        if (favorite) {
+            addSongRow(favoriteList, i, true);
+            ++count;
+        }
     }
-    for (int i = 0; i < count; ++i) { // 当前显示的收藏歌曲下标。
-        int index = findSongIndex(favoriteSongs[i].id); // 收藏编号对应的歌单下标。
-        if (index >= 0) addSongRow(favoriteList, index, true);
-    }
-    favoriteCount->setText(count < 0 ? QStringLiteral("收藏读取失败")
-                                   : QStringLiteral("%1 首收藏").arg(count));
-    songCountLabel->setText(QStringLiteral("%1 首歌曲").arg(songCount));
-    songList->doItemsLayout();
+    songCountLabel->setText(QString::asprintf("%d 首歌曲", songCount));
+    favoriteCount->setText(QString::asprintf("%d 首收藏", count));
+    songList->doItemsLayout();//立即更新界面
     favoriteList->doItemsLayout();
     songList->verticalScrollBar()->setValue(songScroll);
     favoriteList->verticalScrollBar()->setValue(favoriteScroll);
 }
 
-// id 为歌曲编号；返回界面数组下标，找不到时返回 -1。
-int MusicWindow::findSongIndex(int id) const
+// index 为歌曲下标；只更新当前歌曲和两侧选择，无返回值。
+void MusicWindow::showSelectedSong(int index)
+//更新中间播放面板显示的歌曲名称和歌手。同步左右两个列表的选中状态。
+{
+    selected = index;
+    currentSong->setText(QString::fromUtf8(songs[index].title) + " · " +
+                         QString::fromUtf8(songs[index].artist));
+    QListWidget *lists[] = {songList, favoriteList}; // 定义了一个指针数组，里面放了两个 QListWidget 指针。
+    for (int k = 0; k < 2; ++k) { // 分别更新歌单和收藏夹。
+        QListWidget *list = lists[k]; // 本次处理的列表。
+        list->setCurrentRow(-1);
+        for (int i = 0; i < list->count(); ++i) // 查找对应的列表行。
+            if (list->item(i)->data(Qt::UserRole).toInt() == index)
+                list->setCurrentRow(i);
+    }
+}
+
+// 给我一个歌曲 id，我帮你找到这首歌在数组里的 index
+int MusicWindow::findSongIndex(int id)
 {
     for (int i = 0; i < songCount; ++i) { // 当前检查的歌单下标。
         if (songs[i].id == id) return i;
@@ -252,87 +297,69 @@ int MusicWindow::findSongIndex(int id) const
     return -1;
 }
 
-// ③ 歌曲选择、收藏和信息按钮
+// 选中 index 对应的歌曲，停止旧歌曲
 void MusicWindow::selectSong(int index)
 {
     if (index < 0 || index >= songCount) return;
     if (index == selected) return; // 点击正在播放的同一首，不中断音频。
     if (playerReady && player_get_current_id() >= 0 && player_stop() != 0) {
-        showPlaybackError(QStringLiteral("无法停止当前歌曲，请重试。"));
+        showPlaybackError("停止失败，请重试。");
         return;
     }
     showSelectedSong(index);
     updatePlaybackUi();
 }
 
-// index 为歌曲下标；仅同步文字和两侧选中行，无返回值。
-void MusicWindow::showSelectedSong(int index)
-{
-    selected = index;
-    currentSong->setText(QStringLiteral("%1 · %2")
-        .arg(QString::fromUtf8(songs[index].title)).arg(QString::fromUtf8(songs[index].artist)));
-    // 同步两个列表的选中行，不重新创建控件。
-    QListWidget *lists[] = {songList, favoriteList};
-    for (QListWidget *list : lists) {
-        list->setCurrentRow(-1);
-        for (int i = 0; i < list->count(); ++i)
-            if (list->item(i)->data(Qt::UserRole).toInt() == index)
-                list->setCurrentRow(i);
-    }
-}
-
-// index 为界面歌曲下标；调用数据接口增删并保存，失败则恢复原状态，无返回值。
+// ③ index 为歌曲下标；调用 A 增删并保存收藏，失败回滚
 void MusicWindow::onFavoriteClicked(int index)
 {
     if (index < 0 || index >= songCount) return;
     int id = songs[index].id; // 数据接口使用的歌曲编号。
     int wasFavorite = data_is_favorite(id); // 用于切换收藏及保存失败后的回滚。
-    if (wasFavorite < 0 ||
-        (wasFavorite ? data_remove_favorite(id) : data_add_favorite(id)) != 0) {
-        QMessageBox::warning(this, QStringLiteral("收藏失败"), QStringLiteral("歌曲不存在，无法修改收藏。"));
+    int result = -1; // 增删操作的结果，-1 表示失败。
+    if (wasFavorite == 1) result = data_remove_favorite(id);
+    else if (wasFavorite == 0) result = data_add_favorite(id);
+    if (result != 0) {
+        QMessageBox::warning(this, "收藏失败", "无法修改收藏。");
         return;
     }
     if (data_save_favorites("data/favorites.txt") != 0) {
         // 保存未成功时，内存也恢复到操作之前，保证红心和文件内容一致。
         if (wasFavorite) data_add_favorite(id);
         else data_remove_favorite(id);
-        QMessageBox::warning(this, QStringLiteral("保存失败"),
-            QStringLiteral("收藏未保存，本次操作已撤销。请检查 data 目录的写入权限，"
-                           "以及是否存在未处理的 favorites.txt.tmp 文件。"));
+        QMessageBox::warning(this, "保存失败", "收藏未保存，本次操作已撤销。");
         return;
     }
-    refreshLists();
+    // 点击事件结束后再刷新，避免在按钮的回调中销毁按钮自身。
+    QTimer::singleShot(0, this, &MusicWindow::refreshLists);
 }
 
+// 显示 index 对应的完整歌曲信息
 void MusicWindow::showSongInfo(int index)
 {
     if (index < 0 || index >= songCount) return;
     Song song; // 数据模块查询得到的歌曲信息副本。
     if (data_find_song(songs[index].id, &song) != 0) return;
-    QMessageBox::information(this, QStringLiteral("歌曲信息"),
-        QStringLiteral("编号：%1\n歌名：%2\n歌手：%3\n专辑：%4\n文件：%5")
-            .arg(song.id).arg(QString::fromUtf8(song.title)).arg(QString::fromUtf8(song.artist))
-            .arg(QString::fromUtf8(song.album)).arg(QString::fromUtf8(song.path)));
+    QMessageBox::information(this, "歌曲信息",
+        QString::asprintf("编号：%d\n歌名：%s\n歌手：%s\n专辑：%s\n文件：%s",
+                          song.id, song.title, song.artist, song.album, song.path));
 }
 
-// ④ 播放区：进度条、上一首 / 播放 / 下一首、循环模式、音量
+// ④ 创建原来的播放控制区：进度、播放图标、循环模式和音量，返回面板。
 QWidget *MusicWindow::createControls()
 {
-    auto *panel = new QWidget(this);
+    QWidget *panel = new QWidget(this);
     panel->setObjectName("panel");
-    auto *layout = new QVBoxLayout(panel);
+    QVBoxLayout *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(24, 24, 24, 20);
     layout->setSpacing(16);
-    currentSong = new QLabel(QStringLiteral("从歌单选择一首歌曲"), panel);
-    currentSong->setAlignment(Qt::AlignCenter);
+    currentSong = new QLabel("从歌单选择一首歌曲", panel);
+    currentSong->setAlignment(Qt::AlignCenter);//中对齐
     layout->addWidget(currentSong);
-    auto *timeline = new QHBoxLayout;
-    elapsed = new QLabel(QStringLiteral("00:00"), panel);
-    duration = new QLabel(QStringLiteral("--:--"), panel);
+    QHBoxLayout *timeline = new QHBoxLayout;
+    elapsed = new QLabel("00:00", panel);
+    duration = new QLabel("--:--", panel);
     elapsed->setObjectName("muted");
-    duration->setObjectName("muted");
-    elapsed->setAccessibleName(QStringLiteral("当前播放时间"));
-    duration->setAccessibleName(QStringLiteral("歌曲总时长"));
     progress = new QSlider(Qt::Horizontal, panel);
     progress->setObjectName("progress");
     progress->setRange(0, 0);
@@ -342,13 +369,14 @@ QWidget *MusicWindow::createControls()
     timeline->addWidget(duration);
     layout->addLayout(timeline);
 
-    auto *buttons = new QHBoxLayout;
-    auto *previous = new QPushButton(panel);
-    auto *next = new QPushButton(panel);
+    QHBoxLayout *buttons = new QHBoxLayout;
+    QPushButton *previous = new QPushButton(panel);
+    QPushButton *next = new QPushButton(panel);
     playButton = new QPushButton(panel);
     playButton->setObjectName("play");
     previous->setObjectName("previous");
     next->setObjectName("next");
+    //从 Qt 的标准图标中取得播放图标，然后设置到 playButton 按钮上
     previous->setIcon(style()->standardIcon(QStyle::SP_MediaSkipBackward));
     next->setIcon(style()->standardIcon(QStyle::SP_MediaSkipForward));
     playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
@@ -356,9 +384,9 @@ QWidget *MusicWindow::createControls()
     next->setFixedSize(40, 40);
     playButton->setFixedSize(56, 56);
     playButton->setIconSize(QSize(26, 26));
-    previous->setToolTip(QStringLiteral("上一首"));
-    next->setToolTip(QStringLiteral("下一首"));
-    playButton->setToolTip(QStringLiteral("播放 / 暂停"));
+    previous->setToolTip("上一首");
+    next->setToolTip("下一首");
+    playButton->setToolTip("播放 / 暂停");
     buttons->addStretch();
     buttons->addWidget(previous);
     buttons->addSpacing(16);
@@ -368,8 +396,8 @@ QWidget *MusicWindow::createControls()
     buttons->addStretch();
     layout->addLayout(buttons);
 
-    auto *options = new QHBoxLayout;
-    modeButton = new QPushButton(QStringLiteral("顺序播放"), panel);
+    QHBoxLayout *options = new QHBoxLayout;
+    modeButton = new QPushButton("顺序播放", panel);
     modeButton->setObjectName("mode");
     modeButton->setFixedSize(90, 32);
     volume = new QSlider(Qt::Horizontal, panel);
@@ -377,7 +405,7 @@ QWidget *MusicWindow::createControls()
     volume->setRange(0, 100);
     volume->setValue(70);
     volume->setFixedWidth(90);
-    auto *volumeLabel = new QLabel(QStringLiteral("音量 70"), panel);
+    QLabel *volumeLabel = new QLabel("音量 70", panel);
     volumeLabel->setObjectName("muted");
     options->addWidget(modeButton);
     options->addStretch();
@@ -390,23 +418,24 @@ QWidget *MusicWindow::createControls()
     QObject::connect(modeButton, &QPushButton::clicked, this, [this]() {
         if (!playerReady) return;
         int nextMode = (mode + 1) % 3; // 将要设置的播放模式。
-        if (player_set_mode(static_cast<PlayerMode>(nextMode)) != 0) {
-            showPlaybackError(QStringLiteral("无法设置播放模式。"));
+        if (player_set_mode((PlayerMode)nextMode) != 0) {
+            showPlaybackError("模式设置失败。");
             return;
         }
         mode = nextMode;
-        const QString names[] = {QStringLiteral("顺序播放"), QStringLiteral("列表循环"), QStringLiteral("单曲循环")};
+        const QString names[] = {"顺序播放", "列表循环", "单曲循环"};
         modeButton->setText(names[mode]);
     });
     QObject::connect(volume, &QSlider::valueChanged, this, [this, volumeLabel](int value) {
         if (!playerReady || player_set_volume(value) != 0) {
-            QSignalBlocker blocker(volume); // 恢复旧数值时不再次触发 valueChanged。
+            volume->blockSignals(true); // 恢复旧值时不再次触发本回调。
             volume->setValue(volumeValue);
-            showPlaybackError(QStringLiteral("无法设置音量。"));
+            volume->blockSignals(false);
+            showPlaybackError("音量设置失败。");
             return;
         }
         volumeValue = value;
-        volumeLabel->setText(QStringLiteral("音量 %1").arg(value));
+        volumeLabel->setText(QString::asprintf("音量 %d", value));
     });
     QObject::connect(progress, &QSlider::sliderMoved, this, [this](int value) {
         elapsed->setText(formatTime(value)); // 拖动时先预览目标时间。
@@ -415,11 +444,12 @@ QWidget *MusicWindow::createControls()
         if (!playerReady) return;
         int result = player_seek(progress->value()); // 松开滑块后跳转真实音频进度。
         updatePlaybackUi();
-        if (result != 0) showPlaybackError(QStringLiteral("无法跳转到该播放位置。"));
+        if (result != 0) showPlaybackError("进度跳转失败。");
     });
     return panel;
 }
 
+// ④ 根据 B 的真实状态播放、暂停或继续
 void MusicWindow::togglePlay()
 {
     if (!playerReady || songCount == 0) return;
@@ -435,13 +465,13 @@ void MusicWindow::togglePlay()
         result = player_play(songs[selected].id);
     updatePlaybackUi();
     if (result != 0) {
-        showPlaybackError(QStringLiteral("无法播放或暂停歌曲，请检查音频文件和系统音频设备。\n文件：%1")
-            .arg(QFileInfo(QString::fromUtf8(songs[selected].path)).absoluteFilePath()));
+        showPlaybackError("播放或暂停失败，请检查音频文件。");
         return;
     }
     playbackTimer->start();
 }
 
+// direction 为 -1 上一首、1 下一首，无返回值。
 void MusicWindow::changeSong(int direction)
 {
     if (!playerReady || songCount == 0) return;
@@ -463,13 +493,13 @@ void MusicWindow::changeSong(int direction)
     }
     updatePlaybackUi(); // 只同步显示，不调用会停止音频的 selectSong()。
     if (id < 0) {
-        showPlaybackError(QStringLiteral("切歌失败，请检查对应的音频文件。"));
+        showPlaybackError("切歌失败，请检查音频文件。");
         return;
     }
     playbackTimer->start();
 }
 
-// 从 B 查询状态和时间；自动切歌只同步显示，拖动滑块时不覆盖用户的位置。
+// 定时读取 B 的歌曲、状态和进度并显示，拖动时不覆盖滑块；无参数、无返回值。
 void MusicWindow::updatePlaybackUi()
 {
     if (!playerReady) return;
@@ -480,26 +510,33 @@ void MusicWindow::updatePlaybackUi()
     bool sameSong = selected >= 0 && selected == index; // 避免显示上一首已停止音频的进度。
     int total = sameSong ? player_get_duration() : 0; // 总时长，毫秒。
     int position = sameSong ? player_get_position() : 0; // 当前进度，毫秒。
-    total = qMax(0, total);
-    position = qBound(0, position, total);
+    if (total < 0) total = 0;
+    if (position < 0) position = 0;
+    if (position > total) position = total;
     progress->setEnabled(total > 0);
     if (!progress->isSliderDown()) {
         progress->setRange(0, total);
         progress->setValue(position);
         elapsed->setText(formatTime(position));
     }
-    duration->setText(total > 0 ? formatTime(total) : QStringLiteral("--:--"));
-    playButton->setIcon(style()->standardIcon(state == PLAYER_PLAYING ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
-    playButton->setToolTip(state == PLAYER_PLAYING ? QStringLiteral("暂停") : QStringLiteral("播放"));
+    if (total > 0) duration->setText(formatTime(total));
+    else duration->setText("--:--");
+    if (state == PLAYER_PLAYING) {
+        playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+        playButton->setToolTip("暂停");
+    } else {
+        playButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+        playButton->setToolTip("播放");
+    }
 }
 
-// message 是错误原因；统一显示提示，无返回值。
-void MusicWindow::showPlaybackError(const QString &message)
+// message 为错误原因，显示播放错误弹窗，无返回值。
+void MusicWindow::showPlaybackError(QString message)
 {
-    QMessageBox::warning(this, QStringLiteral("播放失败"), message);
+    QMessageBox::warning(this, "播放失败", message);
 }
 
-// ⑤ 程序入口，与笔记中的四步相同。
+// ⑤ 程序入口：创建应用、窗口并进入事件循环；返回退出状态码。
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
@@ -508,7 +545,7 @@ int main(int argc, char *argv[])
     QDir root(QApplication::applicationDirPath()); // 可执行文件所在目录。
     if (QFileInfo::exists(root.filePath("../../data/songs.txt"))) root.cd("../..");
     if (!QDir::setCurrent(root.absolutePath())) {
-        QMessageBox::critical(nullptr, QStringLiteral("启动失败"), QStringLiteral("无法进入数据所在目录。"));
+        QMessageBox::critical(nullptr, "启动失败", "无法进入数据所在目录。");
         return 1;
     }
     MusicWindow window;

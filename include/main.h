@@ -48,14 +48,14 @@ private:
 
     // 创建界面。
     // title 为标题，favoritePanel 指定是否为收藏面板；返回创建的面板。
-    QWidget *createListPanel(const QString &title, bool favoritePanel);
+    QWidget *createListPanel(QString title, bool favoritePanel);
     QWidget *createControls(); // 创建播放控制区，返回面板，无参数。
-    // 向 list 添加 songs[index] 对应的歌曲行；isFavorite 决定爱心外观，无返回值。
+    // 向 list 添加歌曲行；index 为歌曲下标，isFavorite 决定爱心外观，无返回值。
     void addSongRow(QListWidget *list, int index, bool isFavorite = false);
 
     // 数据读取与列表显示。
     void refreshLists(); // 刷新两侧列表，无参数、无返回值。
-    int findSongIndex(int id) const; // 按歌曲编号查找数组下标，不存在时返回 -1。
+    int findSongIndex(int id); // 按歌曲编号查找数组下标，不存在时返回 -1。
     void loadData(); // 读取歌单和收藏，失败时提示，无参数、无返回值。
     void selectSong(int index); // 选择歌曲下标，必要时停止旧播放，无返回值。
     void showSelectedSong(int index); // 只同步此下标的文字和选中行，无返回值。
@@ -66,7 +66,7 @@ private:
     void togglePlay(); // 播放、暂停或继续，无参数、无返回值。
     void changeSong(int direction); // -1 上一首，1 下一首，无返回值。
     void updatePlaybackUi(); // 查询真实状态和进度并刷新，无参数、无返回值。
-    void showPlaybackError(const QString &message); // 弹窗显示错误原因，无返回值。
+    void showPlaybackError(QString message); // 弹窗显示错误原因，无返回值。
 };
 
 #endif
